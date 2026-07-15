@@ -183,6 +183,26 @@
   }
   .log-desc{font-size:14px;font-weight:500;margin-bottom:5px;word-break:break-word}
   .log-note{font-size:12.5px;color:var(--muted);margin-top:-3px;margin-bottom:5px;word-break:break-word}
+
+  .photo-row{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
+  .photo-row .ph{position:relative}
+  .photo-row img{
+    width:64px;height:64px;object-fit:cover;display:block;
+    border-radius:8px;border:1px solid var(--line);
+  }
+  .ph-del{
+    position:absolute;top:-7px;right:-7px;
+    width:21px;height:21px;border-radius:50%;
+    background:var(--danger);color:#fff;border:none;
+    font-size:13px;line-height:21px;text-align:center;
+    padding:0;cursor:pointer;
+  }
+  .viewer{
+    position:fixed;inset:0;background:rgba(0,0,0,.93);
+    display:none;align-items:center;justify-content:center;z-index:50;
+  }
+  .viewer.on{display:flex}
+  .viewer img{max-width:96vw;max-height:92vh;border-radius:8px}
   .log-vals{
     font-family:"IBM Plex Mono",monospace;
     font-size:12.5px;color:var(--text);
@@ -280,6 +300,12 @@
       <label class="label" for="remarks">Uwagi (opcjonalnie)</label>
       <input id="remarks" autocomplete="off" maxlength="120" placeholder="np. do uszczelnienia przy przeglądzie">
     </div>
+    <div class="field">
+      <span class="label">Zdjęcia (opcjonalnie, max 6)</span>
+      <input id="photo-input" type="file" accept="image/*" multiple hidden>
+      <button type="button" class="btn-ghost" id="photo-btn">📷 Dodaj zdjęcie</button>
+      <div class="photo-row" id="photo-staging"></div>
+    </div>
     <button class="btn-primary" id="save-btn" disabled>Zapisz pomiar</button>
   </section>
 
@@ -289,6 +315,7 @@
     <div class="log-actions">
       <button class="btn-ghost" id="copy-btn">Kopiuj do Excela</button>
       <button class="btn-ghost" id="csv-btn">Pobierz CSV</button>
+      <button class="btn-ghost" id="report-btn">Raport</button>
     </div>
   </div>
   <div id="log-list"><div class="log-empty">Brak zapisanych pomiarów.</div></div>
@@ -302,6 +329,8 @@
   </footer>
 
 </div>
+
+<div class="viewer" id="viewer"><img id="viewer-img" alt=""></div>
 
 <script>
 (function(){
@@ -339,6 +368,111 @@
     };
   })();
   let storageOK = store.kind !== 'none';
+
+  /* ---------- photo storage: IndexedDB (big quota, binary blobs) ---------- */
+  let photoDb = null;
+  const photoDbReady = new Promise(resolve => {
+    if (!window.indexedDB){ resolve(null); return; }
+    const req = indexedDB.open('leakcalc-photos', 1);
+    req.onupgradeneeded = e => {
+      const st = e.target.result.createObjectStore('photos', { keyPath: 'id' });
+      st.createIndex('measId', 'measId', { unique: false });
+    };
+    req.onsuccess = e => { photoDb = e.target.result; resolve(photoDb); };
+    req.onerror = () => resolve(null);
+  });
+
+  function idbPut(rec){ return new Promise((res, rej) => {
+    const tx = photoDb.transaction('photos', 'readwrite');
+    tx.objectStore('photos').put(rec);
+    tx.oncomplete = res;
+    tx.onerror = () => rej(tx.error);
+  }); }
+  function idbGetByMeas(measId){ return new Promise(res => {
+    if (!photoDb){ res([]); return; }
+    const out = [];
+    const cur = photoDb.transaction('photos', 'readonly')
+      .objectStore('photos').index('measId').openCursor(IDBKeyRange.only(measId));
+    cur.onsuccess = e => { const c = e.target.result; if (c){ out.push(c.value); c.continue(); } else res(out); };
+    cur.onerror = () => res([]);
+  }); }
+  function idbDeleteByMeas(measId){ return new Promise(res => {
+    if (!photoDb){ res(); return; }
+    const cur = photoDb.transaction('photos', 'readwrite')
+      .objectStore('photos').index('measId').openCursor(IDBKeyRange.only(measId));
+    cur.onsuccess = e => { const c = e.target.result; if (c){ c.delete(); c.continue(); } else res(); };
+    cur.onerror = () => res();
+  }); }
+  function idbCount(){ return new Promise(res => {
+    if (!photoDb){ res(0); return; }
+    const r = photoDb.transaction('photos', 'readonly').objectStore('photos').count();
+    r.onsuccess = () => res(r.result);
+    r.onerror = () => res(0);
+  }); }
+
+  /* downscale to max 1200 px, JPEG 60% – ok. 100–200 KB na zdjęcie */
+  async function compressPhoto(file){
+    const MAX = 1200;
+    let src, w0, h0, objUrl = null;
+    try {
+      src = await createImageBitmap(file);
+      w0 = src.width; h0 = src.height;
+    } catch(e){
+      src = await new Promise((res, rej) => {
+        const im = new Image();
+        objUrl = URL.createObjectURL(file);
+        im.onload = () => res(im);
+        im.onerror = rej;
+        im.src = objUrl;
+      }).catch(() => null);
+      if (!src){ if (objUrl) URL.revokeObjectURL(objUrl); return null; }
+      w0 = src.naturalWidth; h0 = src.naturalHeight;
+    }
+    const k = Math.min(1, MAX / Math.max(w0, h0));
+    const cv = document.createElement('canvas');
+    cv.width = Math.max(1, Math.round(w0 * k));
+    cv.height = Math.max(1, Math.round(h0 * k));
+    cv.getContext('2d').drawImage(src, 0, 0, cv.width, cv.height);
+    if (src.close) src.close();
+    if (objUrl) URL.revokeObjectURL(objUrl);
+    return new Promise(res => cv.toBlob(b => res(b), 'image/jpeg', 0.6));
+  }
+  function blobToDataUrl(blob){ return new Promise(res => {
+    const r = new FileReader();
+    r.onload = () => res(r.result);
+    r.readAsDataURL(blob);
+  }); }
+
+  /* photos waiting to be attached to the next saved measurement */
+  let stagedPhotos = [];
+  function renderStaging(){
+    const box = $('photo-staging');
+    box.textContent = '';
+    stagedPhotos.forEach((blob, i) => {
+      const d = document.createElement('div');
+      d.className = 'ph';
+      const img = document.createElement('img');
+      const u = URL.createObjectURL(blob);
+      img.src = u;
+      img.onload = () => URL.revokeObjectURL(u);
+      img.addEventListener('click', () => showViewer(blob));
+      const x = document.createElement('button');
+      x.type = 'button';
+      x.className = 'ph-del';
+      x.textContent = '×';
+      x.addEventListener('click', () => { stagedPhotos.splice(i, 1); renderStaging(); });
+      d.appendChild(img);
+      d.appendChild(x);
+      box.appendChild(d);
+    });
+  }
+
+  let viewerUrl = null;
+  function showViewer(blob){
+    viewerUrl = URL.createObjectURL(blob);
+    $('viewer-img').src = viewerUrl;
+    $('viewer').classList.add('on');
+  }
 
   /* ---------- parsing & formatting ---------- */
   function parseNum(str){
@@ -453,14 +587,17 @@
   }
 
   /* ---------- measurement log ---------- */
-  function saveMeasurement(){
+  async function saveMeasurement(){
     const s = currentState();
     if (s.qL == null && s.qD == null) return;
     const now = new Date();
     const volL = s.qL == null ? null : s.qL * 60 * s.hours / 1000;
     const volD = s.qD == null ? null : s.qD * 60 * s.hours / 1000;
+    const id = now.getTime() + '-' + Math.random().toString(36).slice(2,7);
+    const toAttach = stagedPhotos.slice();
     measurements.unshift({
-      id: now.getTime() + '-' + Math.random().toString(36).slice(2,7),
+      id: id,
+      photos: (photoDb && toAttach.length) ? toAttach.length : 0,
       ts: now.getTime(),
       date: stampDate(now),
       time: stampTime(now),
@@ -473,6 +610,14 @@
       costD: (s.price != null && volD != null) ? volD * s.price : null,
       price: s.price, hours: s.hours
     });
+    if (photoDb && toAttach.length){
+      for (let i = 0; i < toAttach.length; i++){
+        try { await idbPut({ id: id + '-p' + i, measId: id, ts: now.getTime(), blob: toAttach[i] }); }
+        catch(e){ /* pełny dysk: pomiar zostaje, zdjęcie nie */ }
+      }
+    }
+    stagedPhotos = [];
+    renderStaging();
     persistLog();
     inputs.leakq.value = '';
     inputs.db.value = '';
@@ -484,6 +629,10 @@
   function renderLog(){
     const list = $('log-list');
     $('count').textContent = measurements.length + (measurements.length === 1 ? ' pomiar' : ' pomiarów');
+    idbCount().then(n => {
+      if (n) $('count').textContent = measurements.length +
+        (measurements.length === 1 ? ' pomiar' : ' pomiarów') + ' · ' + n + ' zdj.';
+    });
     list.textContent = '';
     if (measurements.length === 0){
       const e = document.createElement('div');
@@ -531,6 +680,22 @@
       }
       vals.innerHTML = parts.join('<br>');
       main.appendChild(vals);
+
+      if (m.photos){
+        const pr = document.createElement('div');
+        pr.className = 'photo-row';
+        main.appendChild(pr);
+        idbGetByMeas(m.id).then(recs => {
+          recs.forEach(rec => {
+            const img = document.createElement('img');
+            const u = URL.createObjectURL(rec.blob);
+            img.src = u;
+            img.onload = () => URL.revokeObjectURL(u);
+            img.addEventListener('click', () => showViewer(rec.blob));
+            pr.appendChild(img);
+          });
+        });
+      }
       row.appendChild(main);
 
       const del = document.createElement('button');
@@ -539,6 +704,7 @@
       del.addEventListener('click', () => {
         if (del.classList.contains('confirm')){
           measurements = measurements.filter(x => x.id !== m.id);
+          idbDeleteByMeas(m.id);
           persistLog();
           renderLog();
         } else {
@@ -569,7 +735,7 @@
       'Q wg LeakQ [l/min]','Q wg dB [l/min]',
       'V wg LeakQ [m3/rok]','V wg dB [m3/rok]',
       'Koszt wg LeakQ [zl/rok]','Koszt wg dB [zl/rok]',
-      'Cena [zl/m3]','Praca sieci [h/rok]'];
+      'Cena [zl/m3]','Praca sieci [h/rok]','Zdjecia'];
     const txtCell = (v) => sep === '\t' ? String(v || '').replace(/[\t\n]/g,' ') : csvCell(v || '', sep);
     const rows = measurements.slice().reverse().map(m => [
       m.date, m.time,
@@ -579,7 +745,8 @@
       excelNum(m.qL, 3), excelNum(m.qD, 3),
       excelNum(m.volL, 1), excelNum(m.volD, 1),
       excelNum(m.costL, 2), excelNum(m.costD, 2),
-      excelNum(m.price, 4), excelNum(m.hours, 0)
+      excelNum(m.price, 4), excelNum(m.hours, 0),
+      String(m.photos || 0)
     ].join(sep));
     return head.join(sep) + '\n' + rows.join('\n');
   }
@@ -626,6 +793,95 @@
     flash($('csv-btn'), 'Pobrano');
   }
 
+  /* ---------- raport HTML → PDF (przez „Drukuj") ---------- */
+  async function downloadReport(){
+    if (measurements.length === 0){ flash($('report-btn'), 'Dziennik pusty'); return; }
+    const esc = s => String(s == null ? '' : s)
+      .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+    const list = measurements.slice().reverse();   /* chronologicznie */
+    let total = 0, withCost = 0;
+    const blocks = [];
+    for (const m of list){
+      const best = m.costL != null ? m.costL : m.costD;
+      if (best != null){ total += best; withCost++; }
+      let imgs = '';
+      if (m.photos){
+        const recs = await idbGetByMeas(m.id);
+        for (const p of recs){
+          imgs += '<figure><img src="' + await blobToDataUrl(p.blob) + '" alt=""></figure>';
+        }
+      }
+      let rows = '';
+      if (m.leakq != null){
+        rows += '<tr><td>LeakQ ' + esc(fmt(m.leakq, m.leakq % 1 ? 1 : 0)) + '</td><td>' +
+          esc(fmtFlow(m.qL)) + ' l/min</td><td>' + esc(fmtVol(m.volL)) + ' m³/rok</td><td>' +
+          (m.costL != null ? '<b>' + esc(fmtCost(m.costL)) + ' zł/rok</b>' : '–') + '</td></tr>';
+      }
+      if (m.db != null){
+        rows += '<tr><td>' + esc(fmt(m.db, m.db % 1 ? 1 : 0)) + ' dB</td><td>' +
+          esc(fmtFlow(m.qD)) + ' l/min</td><td>' + esc(fmtVol(m.volD)) + ' m³/rok</td><td>' +
+          (m.costD != null ? '<b>' + esc(fmtCost(m.costD)) + ' zł/rok</b>' : '–') + '</td></tr>';
+      }
+      const locTxt = m.loc != null ? m.loc : m.desc;
+      blocks.push('<section class="meas">' +
+        '<div class="meta">' + esc(m.date) + ' · ' + esc(m.time) + '</div>' +
+        (locTxt ? '<div class="loc">' + esc(locTxt) + '</div>' : '') +
+        (m.remarks ? '<div class="note">' + esc(m.remarks) + '</div>' : '') +
+        '<table><tr><th>Pomiar</th><th>Wyciek</th><th>Objętość</th><th>Koszt</th></tr>' + rows + '</table>' +
+        (imgs ? '<div class="photos">' + imgs + '</div>' : '') +
+        '</section>');
+    }
+    const d = new Date();
+    const html = '<!DOCTYPE html><html lang="pl"><head><meta charset="UTF-8">' +
+      '<meta name="viewport" content="width=device-width, initial-scale=1">' +
+      '<title>Raport wycieków ' + stampDate(d) + '</title><style>' +
+      /* raport zawsze jasny – także w przeglądarce w trybie ciemnym */
+      'html{color-scheme:light;background:#fff}' +
+      'body{font-family:-apple-system,"Segoe UI",Arial,sans-serif;color:#1a1c20;background:#fff;max-width:800px;margin:0 auto;padding:24px}' +
+      'h1{font-size:22px;margin:0 0 4px}' +
+      '.subtitle{color:#666;font-size:13px;margin-bottom:18px}' +
+      '.summary{border:1px solid #ccc;border-radius:8px;padding:12px 16px;margin-bottom:20px;font-size:14px;break-inside:avoid;page-break-inside:avoid}' +
+      '.summary b{font-size:18px}' +
+      '.summary small{color:#666}' +
+      /* break-inside:avoid = pomiar nigdy nie jest przecięty granicą strony */
+      '.meas{border:1px solid #ccc;border-radius:8px;padding:14px 16px;margin-bottom:14px;break-inside:avoid;page-break-inside:avoid}' +
+      '.meta{font-size:12px;color:#666}' +
+      '.loc{font-size:16px;font-weight:600;margin:2px 0}' +
+      '.note{font-size:13px;color:#444;margin:2px 0 6px}' +
+      'table{border-collapse:collapse;width:100%;font-size:13px;margin:8px 0}' +
+      'th,td{border:1px solid #ccc;padding:5px 8px;text-align:left}' +
+      'th{background:#f2f3f5;font-weight:600}' +
+      '.photos{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}' +
+      '.photos figure{margin:0;break-inside:avoid;page-break-inside:avoid}' +
+      '.photos img{width:100%;max-width:352px;max-height:110mm;object-fit:contain;border:1px solid #ccc;border-radius:6px;display:block}' +
+      '.print-btn{position:fixed;top:14px;right:14px;background:#1a73e8;color:#fff;border:none;border-radius:8px;padding:10px 16px;font-size:14px;cursor:pointer}' +
+      'footer{color:#888;font-size:11px;margin-top:20px}' +
+      '@media print{.print-btn{display:none}body{padding:0}}' +
+      '@page{size:A4;margin:14mm}' +
+      '</style></head><body>' +
+      '<button class="print-btn" onclick="print()">Drukuj / zapisz PDF</button>' +
+      '<h1>Raport wycieków sprężonego powietrza</h1>' +
+      '<div class="subtitle">Wygenerowano ' + stampDate(d) + ' ' + stampTime(d) +
+        ' · Fluke ii500 · pomiarów: ' + list.length + '</div>' +
+      (withCost ? '<div class="summary">Łączny szacowany koszt wycieków: <b>' +
+        esc(fmtCost(total)) + ' zł/rok</b><br><small>Suma dla ' + withCost + ' z ' + list.length +
+        ' pomiarów (te z podaną ceną); gdy dostępne, wg LeakQ, w przeciwnym razie wg dB.</small></div>' : '') +
+      blocks.join('') +
+      '<footer>Modele kalibracyjne: dB = 19,605·ln(Q) + 11,7 oraz LeakQ = 2,3432·ln(Q) − 4,1653, Q w l/min. ' +
+      'Szacunek wg dB dotyczy pomiaru z odległości 1 m.</footer>' +
+      '</body></html>';
+    const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'raport_wyciekow_' + d.getFullYear() + two(d.getMonth()+1) + two(d.getDate()) + '.html';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 4000);
+    flash($('report-btn'), 'Pobrano');
+  }
+
   /* ---------- wiring ---------- */
   ['leakq','db'].forEach(k => inputs[k].addEventListener('input', recalc));
   ['price','hours'].forEach(k => inputs[k].addEventListener('input', () => {
@@ -640,6 +896,30 @@
   $('save-btn').addEventListener('click', saveMeasurement);
   $('copy-btn').addEventListener('click', copyToExcel);
   $('csv-btn').addEventListener('click', downloadCsv);
+  $('report-btn').addEventListener('click', downloadReport);
+
+  $('photo-btn').addEventListener('click', () => $('photo-input').click());
+  $('photo-input').addEventListener('change', async e => {
+    const files = Array.from(e.target.files || []);
+    e.target.value = '';
+    for (const f of files){
+      if (stagedPhotos.length >= 6) break;
+      const b = await compressPhoto(f);
+      if (b) stagedPhotos.push(b);
+    }
+    renderStaging();
+  });
+
+  $('viewer').addEventListener('click', () => {
+    $('viewer').classList.remove('on');
+    $('viewer-img').removeAttribute('src');
+    if (viewerUrl){ URL.revokeObjectURL(viewerUrl); viewerUrl = null; }
+  });
+
+  photoDbReady.then(db => {
+    if (!db){ $('photo-btn').style.display = 'none'; }
+    else if (measurements.length){ renderLog(); }
+  });
 
   loadAll();
 })();
