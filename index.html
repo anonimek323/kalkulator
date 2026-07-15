@@ -182,6 +182,7 @@
     margin-bottom:3px;
   }
   .log-desc{font-size:14px;font-weight:500;margin-bottom:5px;word-break:break-word}
+  .log-note{font-size:12.5px;color:var(--muted);margin-top:-3px;margin-bottom:5px;word-break:break-word}
   .log-vals{
     font-family:"IBM Plex Mono",monospace;
     font-size:12.5px;color:var(--text);
@@ -272,8 +273,12 @@
 
   <section class="save-box">
     <div class="field">
-      <label class="label" for="desc">Opis / lokalizacja (opcjonalnie)</label>
-      <input id="desc" autocomplete="off" maxlength="120" placeholder="np. hala B, zawór przy AHU-3">
+      <label class="label" for="loc">Lokalizacja (opcjonalnie)</label>
+      <input id="loc" autocomplete="off" maxlength="120" placeholder="np. hala B, zawór przy AHU-3">
+    </div>
+    <div class="field">
+      <label class="label" for="remarks">Uwagi (opcjonalnie)</label>
+      <input id="remarks" autocomplete="off" maxlength="120" placeholder="np. do uszczelnienia przy przeglądzie">
     </div>
     <button class="btn-primary" id="save-btn" disabled>Zapisz pomiar</button>
   </section>
@@ -301,7 +306,7 @@
 <script>
 (function(){
   const $ = id => document.getElementById(id);
-  const inputs = { leakq: $('leakq'), db: $('db'), price: $('price'), hours: $('hours'), desc: $('desc') };
+  const inputs = { leakq: $('leakq'), db: $('db'), price: $('price'), hours: $('hours'), loc: $('loc'), remarks: $('remarks') };
   const SETTINGS_KEY = 'leakcalc-settings';
   const LOG_KEY = 'leakcalc-measurements';
   let measurements = [];
@@ -405,7 +410,7 @@
     if (!storageOK) return;
     try {
       await store.set(SETTINGS_KEY, JSON.stringify({
-        price: inputs.price.value, hours: inputs.hours.value
+        price: inputs.price.value, hours: inputs.hours.value, loc: inputs.loc.value
       }));
       const badge = $('saved');
       badge.classList.add('on');
@@ -433,6 +438,7 @@
         const v = JSON.parse(s);
         if (v.price != null) inputs.price.value = v.price;
         if (v.hours != null) inputs.hours.value = v.hours;
+        if (v.loc != null) inputs.loc.value = v.loc;
       }
     } catch (e) { /* first run: key absent */ }
     try {
@@ -458,7 +464,8 @@
       ts: now.getTime(),
       date: stampDate(now),
       time: stampTime(now),
-      desc: inputs.desc.value.trim(),
+      loc: inputs.loc.value.trim(),
+      remarks: inputs.remarks.value.trim(),
       leakq: s.lq, db: s.db,
       qL: s.qL, qD: s.qD,
       volL: volL, volD: volD,
@@ -469,7 +476,7 @@
     persistLog();
     inputs.leakq.value = '';
     inputs.db.value = '';
-    inputs.desc.value = '';
+    inputs.remarks.value = '';   /* lokalizacja zostaje do ręcznej zmiany */
     recalc();
     renderLog();
   }
@@ -497,11 +504,18 @@
       meta.textContent = m.date + ' · ' + m.time;
       main.appendChild(meta);
 
-      if (m.desc){
+      const locTxt = m.loc != null ? m.loc : m.desc;  /* stare wpisy: desc */
+      if (locTxt){
         const d = document.createElement('div');
         d.className = 'log-desc';
-        d.textContent = m.desc;
+        d.textContent = locTxt;
         main.appendChild(d);
+      }
+      if (m.remarks){
+        const r = document.createElement('div');
+        r.className = 'log-note';
+        r.textContent = m.remarks;
+        main.appendChild(r);
       }
 
       const vals = document.createElement('div');
@@ -551,14 +565,16 @@
     return s;
   }
   function buildTable(sep){
-    const head = ['Data','Godzina','Opis','LeakQ','dB',
+    const head = ['Data','Godzina','Lokalizacja','Uwagi','LeakQ','dB',
       'Q wg LeakQ [l/min]','Q wg dB [l/min]',
       'V wg LeakQ [m3/rok]','V wg dB [m3/rok]',
       'Koszt wg LeakQ [zl/rok]','Koszt wg dB [zl/rok]',
       'Cena [zl/m3]','Praca sieci [h/rok]'];
+    const txtCell = (v) => sep === '\t' ? String(v || '').replace(/[\t\n]/g,' ') : csvCell(v || '', sep);
     const rows = measurements.slice().reverse().map(m => [
       m.date, m.time,
-      sep === '\t' ? String(m.desc || '').replace(/[\t\n]/g,' ') : csvCell(m.desc, sep),
+      txtCell(m.loc != null ? m.loc : m.desc),
+      txtCell(m.remarks),
       excelNum(m.leakq, 1), excelNum(m.db, 1),
       excelNum(m.qL, 3), excelNum(m.qD, 3),
       excelNum(m.volL, 1), excelNum(m.volD, 1),
@@ -617,6 +633,10 @@
     clearTimeout(saveTimer);
     saveTimer = setTimeout(persistSettings, 600);
   }));
+  inputs.loc.addEventListener('input', () => {
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(persistSettings, 600);
+  });
   $('save-btn').addEventListener('click', saveMeasurement);
   $('copy-btn').addEventListener('click', copyToExcel);
   $('csv-btn').addEventListener('click', downloadCsv);
