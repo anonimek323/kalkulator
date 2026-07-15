@@ -1,0 +1,628 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#15171C">
+<title>Koszt wycieku · Fluke ii500</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#15171C;
+    --surface:#1D2027;
+    --line:#2B2F39;
+    --text:#E9EBEE;
+    --muted:#8E94A0;
+    --input-bg:#1B2432;      /* echo of the blue input cells in the workbook */
+    --input-line:#31435E;
+    --input-focus:#5B8DD9;
+    --accent:#FFC20E;        /* Fluke yellow, reserved for results and primary action */
+    --danger:#E5484D;
+    --radius:12px;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  html{-webkit-text-size-adjust:100%}
+  body{
+    background:var(--bg);
+    color:var(--text);
+    font-family:"IBM Plex Sans",-apple-system,"Segoe UI",sans-serif;
+    min-height:100vh;
+    padding:calc(env(safe-area-inset-top) + 20px) 16px calc(env(safe-area-inset-bottom) + 28px);
+  }
+  .wrap{max-width:430px;margin:0 auto}
+
+  header{margin-bottom:22px}
+  .eyebrow{
+    font-family:"IBM Plex Mono",monospace;
+    font-size:11px;letter-spacing:.14em;
+    color:var(--muted);text-transform:uppercase;
+    margin-bottom:6px;
+  }
+  h1{font-size:26px;font-weight:600;letter-spacing:-.01em}
+
+  .banner{
+    display:none;
+    background:#3A2224;border:1px solid #5C3236;border-radius:var(--radius);
+    color:#F0B4B7;font-size:12.5px;line-height:1.45;
+    padding:10px 12px;margin-bottom:16px;
+  }
+  .banner.on{display:block}
+
+  .label{
+    display:block;font-size:12.5px;font-weight:500;
+    color:var(--muted);margin-bottom:6px;letter-spacing:.02em;
+  }
+  .field input{
+    width:100%;
+    background:var(--input-bg);
+    border:1px solid var(--input-line);
+    border-radius:var(--radius);
+    color:var(--text);
+    font-family:"IBM Plex Mono",monospace;
+    font-size:20px;font-weight:500;
+    padding:13px 14px;
+    outline:none;
+    font-variant-numeric:tabular-nums;
+  }
+  .field input:focus{border-color:var(--input-focus);box-shadow:0 0 0 3px rgba(91,141,217,.22)}
+  .field input::placeholder{color:#4A5261;font-weight:400}
+
+  .row{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+  .measure{margin-bottom:20px}
+
+  .settings{
+    background:var(--surface);
+    border:1px solid var(--line);
+    border-radius:var(--radius);
+    padding:14px;
+    margin-bottom:26px;
+  }
+  .settings input{font-size:16px;padding:10px 12px}
+  .settings-title{
+    font-family:"IBM Plex Mono",monospace;
+    font-size:11px;letter-spacing:.12em;text-transform:uppercase;
+    color:var(--muted);margin-bottom:12px;
+    display:flex;justify-content:space-between;align-items:baseline;
+  }
+  .saved{
+    font-size:10px;letter-spacing:.08em;color:var(--muted);
+    opacity:0;transition:opacity .25s;
+  }
+  .saved.on{opacity:1}
+
+  .rule{
+    height:2px;background:var(--accent);border:none;
+    width:44px;margin:0 0 18px;border-radius:2px;
+  }
+  .section-heading{
+    font-family:"IBM Plex Mono",monospace;
+    font-size:11px;letter-spacing:.14em;text-transform:uppercase;
+    color:var(--muted);margin-bottom:12px;
+  }
+
+  .card{
+    background:var(--surface);
+    border:1px solid var(--line);
+    border-radius:var(--radius);
+    padding:16px;
+    margin-bottom:12px;
+  }
+  .card-tag{
+    display:inline-block;
+    font-family:"IBM Plex Mono",monospace;
+    font-size:11px;letter-spacing:.1em;text-transform:uppercase;
+    color:var(--muted);
+    border:1px solid var(--line);
+    border-radius:6px;
+    padding:3px 8px;
+    margin-bottom:12px;
+  }
+  .cost{
+    font-family:"IBM Plex Mono",monospace;
+    font-size:34px;font-weight:600;line-height:1.1;
+    color:var(--accent);
+    font-variant-numeric:tabular-nums;
+    word-break:break-word;
+  }
+  .cost .unit{font-size:16px;font-weight:500;color:var(--muted);margin-left:4px}
+  .sub{display:flex;gap:18px;margin-top:10px;flex-wrap:wrap}
+  .sub div{font-family:"IBM Plex Mono",monospace;font-size:14px;color:var(--text);font-variant-numeric:tabular-nums}
+  .sub span{display:block;font-family:"IBM Plex Sans",sans-serif;font-size:11px;color:var(--muted);margin-bottom:2px}
+  .empty{color:var(--muted);font-size:14px;font-family:"IBM Plex Sans",sans-serif;font-weight:400}
+
+  .save-box{margin:18px 0 30px}
+  .save-box .field{margin-bottom:12px}
+  .save-box .field input{font-size:16px;padding:11px 13px;font-family:"IBM Plex Sans",sans-serif}
+  .btn-primary{
+    width:100%;
+    background:var(--accent);
+    color:#1A1608;
+    border:none;border-radius:var(--radius);
+    font-family:"IBM Plex Sans",sans-serif;
+    font-size:16px;font-weight:600;
+    padding:14px;
+    cursor:pointer;
+  }
+  .btn-primary:disabled{background:#3A3E48;color:#7B808B;cursor:default}
+  .btn-primary:focus-visible{outline:2px solid var(--input-focus);outline-offset:2px}
+
+  .log-head{
+    display:flex;justify-content:space-between;align-items:baseline;
+    margin-bottom:12px;flex-wrap:wrap;gap:8px;
+  }
+  .log-actions{display:flex;gap:8px}
+  .btn-ghost{
+    background:var(--surface);
+    border:1px solid var(--line);
+    border-radius:8px;
+    color:var(--text);
+    font-family:"IBM Plex Sans",sans-serif;
+    font-size:12.5px;font-weight:500;
+    padding:7px 11px;
+    cursor:pointer;
+  }
+  .btn-ghost:focus-visible{outline:2px solid var(--input-focus);outline-offset:2px}
+  .btn-ghost.ok{border-color:var(--accent);color:var(--accent)}
+
+  .log-row{
+    background:var(--surface);
+    border:1px solid var(--line);
+    border-radius:var(--radius);
+    padding:12px 14px;
+    margin-bottom:8px;
+    display:flex;gap:10px;align-items:flex-start;
+  }
+  .log-main{flex:1;min-width:0}
+  .log-meta{
+    font-family:"IBM Plex Mono",monospace;
+    font-size:11.5px;color:var(--muted);
+    margin-bottom:3px;
+  }
+  .log-desc{font-size:14px;font-weight:500;margin-bottom:5px;word-break:break-word}
+  .log-vals{
+    font-family:"IBM Plex Mono",monospace;
+    font-size:12.5px;color:var(--text);
+    font-variant-numeric:tabular-nums;
+    line-height:1.5;
+  }
+  .log-vals b{color:var(--accent);font-weight:500}
+  .btn-del{
+    background:none;border:1px solid var(--line);border-radius:8px;
+    color:var(--muted);font-size:13px;
+    padding:5px 9px;cursor:pointer;flex-shrink:0;
+    font-family:"IBM Plex Sans",sans-serif;
+  }
+  .btn-del.confirm{border-color:var(--danger);color:var(--danger)}
+  .log-empty{color:var(--muted);font-size:13.5px;padding:6px 2px}
+
+  footer{
+    margin-top:24px;
+    font-size:11.5px;color:var(--muted);line-height:1.5;
+  }
+  footer code{font-family:"IBM Plex Mono",monospace;font-size:10.5px}
+  @media (prefers-reduced-motion: reduce){ .saved{transition:none} }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header>
+    <div class="eyebrow">Fluke ii500 · Sprężone powietrze</div>
+    <h1>Koszt wycieku</h1>
+  </header>
+
+  <div class="banner" id="storage-banner">
+    Brak trwałego zapisu w tym środowisku. Zapisane pomiary znikną po zamknięciu –
+    przed wyjściem użyj „Kopiuj do Excela”.
+  </div>
+
+  <section class="measure">
+    <div class="row">
+      <div class="field">
+        <label class="label" for="leakq">LeakQ</label>
+        <input id="leakq" inputmode="decimal" autocomplete="off" placeholder="np. 4,5">
+      </div>
+      <div class="field">
+        <label class="label" for="db">Poziom dźwięku [dB]</label>
+        <input id="db" inputmode="decimal" autocomplete="off" placeholder="np. 38,2">
+      </div>
+    </div>
+  </section>
+
+  <section class="settings">
+    <div class="settings-title">
+      <span>Parametry stałe</span>
+      <span class="saved" id="saved">zapisano</span>
+    </div>
+    <div class="row">
+      <div class="field">
+        <label class="label" for="price">Cena 1 m³ [zł]</label>
+        <input id="price" inputmode="decimal" autocomplete="off" placeholder="np. 0,15">
+      </div>
+      <div class="field">
+        <label class="label" for="hours">Praca sieci [h/rok]</label>
+        <input id="hours" inputmode="numeric" autocomplete="off" placeholder="8760">
+      </div>
+    </div>
+  </section>
+
+  <hr class="rule">
+  <div class="section-heading">Szacunek roczny</div>
+
+  <div class="card" id="card-leakq">
+    <div class="card-tag">wg LeakQ</div>
+    <div class="cost" id="cost-leakq"><span class="empty">Wpisz LeakQ</span></div>
+    <div class="sub" id="sub-leakq" hidden>
+      <div><span>Wyciek</span><b id="flow-leakq"></b></div>
+      <div><span>Objętość</span><b id="vol-leakq"></b></div>
+    </div>
+  </div>
+
+  <div class="card" id="card-db">
+    <div class="card-tag">wg dB</div>
+    <div class="cost" id="cost-db"><span class="empty">Wpisz dB</span></div>
+    <div class="sub" id="sub-db" hidden>
+      <div><span>Wyciek</span><b id="flow-db"></b></div>
+      <div><span>Objętość</span><b id="vol-db"></b></div>
+    </div>
+  </div>
+
+  <section class="save-box">
+    <div class="field">
+      <label class="label" for="desc">Opis / lokalizacja (opcjonalnie)</label>
+      <input id="desc" autocomplete="off" maxlength="120" placeholder="np. hala B, zawór przy AHU-3">
+    </div>
+    <button class="btn-primary" id="save-btn" disabled>Zapisz pomiar</button>
+  </section>
+
+  <div class="section-heading" style="margin-bottom:0">Zapisane pomiary</div>
+  <div class="log-head">
+    <span style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--muted)" id="count">0</span>
+    <div class="log-actions">
+      <button class="btn-ghost" id="copy-btn">Kopiuj do Excela</button>
+      <button class="btn-ghost" id="csv-btn">Pobierz CSV</button>
+    </div>
+  </div>
+  <div id="log-list"><div class="log-empty">Brak zapisanych pomiarów.</div></div>
+
+  <footer>
+    Modele kalibracyjne:
+    <code>dB = 19,605·ln(Q) + 11,7</code> oraz
+    <code>LeakQ = 2,3432·ln(Q) − 4,1653</code>, Q w l/min.
+    Szacunek wg dB obowiązuje wyłącznie dla pomiaru z odległości 1 m (jak przy kalibracji).
+    Koszt w dzienniku liczony wg ceny i godzin z chwili zapisu; surowe przepływy są w eksporcie.
+  </footer>
+
+</div>
+
+<script>
+(function(){
+  const $ = id => document.getElementById(id);
+  const inputs = { leakq: $('leakq'), db: $('db'), price: $('price'), hours: $('hours'), desc: $('desc') };
+  const SETTINGS_KEY = 'leakcalc-settings';
+  const LOG_KEY = 'leakcalc-measurements';
+  let measurements = [];
+  let saveTimer = null;
+
+  /* storage adapter: Claude artifact -> browser localStorage -> session memory */
+  const store = (function(){
+    if (typeof window.storage !== 'undefined' && window.storage && typeof window.storage.get === 'function'){
+      return {
+        kind: 'claude',
+        async get(k){ try { const r = await window.storage.get(k); return r ? r.value : null; } catch(e){ return null; } },
+        async set(k, v){ await window.storage.set(k, v); }
+      };
+    }
+    try {
+      const t = '__leakcalc_test__';
+      window.localStorage.setItem(t, '1');
+      window.localStorage.removeItem(t);
+      return {
+        kind: 'local',
+        async get(k){ return window.localStorage.getItem(k); },
+        async set(k, v){ window.localStorage.setItem(k, v); }
+      };
+    } catch(e){ /* sandboxed viewer or private mode */ }
+    const mem = {};
+    return {
+      kind: 'none',
+      async get(k){ return (k in mem) ? mem[k] : null; },
+      async set(k, v){ mem[k] = v; }
+    };
+  })();
+  let storageOK = store.kind !== 'none';
+
+  /* ---------- parsing & formatting ---------- */
+  function parseNum(str){
+    if (str == null) return null;
+    const s = String(str).trim().replace(/\s+/g,'').replace(',', '.');
+    if (s === '') return null;
+    const v = Number(s);
+    return Number.isFinite(v) ? v : null;
+  }
+  function fmt(v, dec){
+    return v.toLocaleString('pl-PL', { minimumFractionDigits: dec, maximumFractionDigits: dec });
+  }
+  function fmtFlow(q){
+    if (q < 0.1) return fmt(q, 3);
+    if (q < 10)  return fmt(q, 2);
+    if (q < 100) return fmt(q, 1);
+    return fmt(q, 0);
+  }
+  function fmtCost(c){ return c < 100 ? fmt(c, 2) : fmt(Math.round(c), 0); }
+  function fmtVol(v){ return v < 100 ? fmt(v, 1) : fmt(Math.round(v), 0); }
+  function two(n){ return String(n).padStart(2,'0'); }
+  function stampDate(d){ return two(d.getDate()) + '.' + two(d.getMonth()+1) + '.' + d.getFullYear(); }
+  function stampTime(d){ return two(d.getHours()) + ':' + two(d.getMinutes()); }
+
+  /* ---------- models ---------- */
+  function qFromLeakQ(lq){ return Math.exp((lq + 4.1653) / 2.3432); }
+  function qFromDb(db){ return Math.exp((db - 11.7) / 19.605); }
+
+  function currentState(){
+    const lq    = parseNum(inputs.leakq.value);
+    const db    = parseNum(inputs.db.value);
+    const price = parseNum(inputs.price.value);
+    let hours   = parseNum(inputs.hours.value);
+    if (hours == null || hours <= 0) hours = 8760;
+    if (hours > 8784) hours = 8784;
+    return { lq, db, price, hours,
+             qL: lq == null ? null : qFromLeakQ(lq),
+             qD: db == null ? null : qFromDb(db) };
+  }
+
+  /* ---------- live cards ---------- */
+  function renderCard(key, q, price, hours){
+    const cost = $('cost-' + key), sub = $('sub-' + key);
+    if (q == null){
+      cost.innerHTML = '<span class="empty">' + (key === 'leakq' ? 'Wpisz LeakQ' : 'Wpisz dB') + '</span>';
+      sub.hidden = true;
+      return;
+    }
+    const m3rok = q * 60 * hours / 1000;
+    $('flow-' + key).textContent = fmtFlow(q) + ' l/min';
+    $('vol-' + key).textContent = fmtVol(m3rok) + ' m³/rok';
+    sub.hidden = false;
+    if (price == null){
+      cost.innerHTML = '<span class="empty">Podaj cenę 1 m³</span>';
+    } else {
+      cost.innerHTML = fmtCost(m3rok * price) + '<span class="unit">zł/rok</span>';
+    }
+  }
+
+  function recalc(){
+    const s = currentState();
+    renderCard('leakq', s.qL, s.price, s.hours);
+    renderCard('db',    s.qD, s.price, s.hours);
+    $('save-btn').disabled = (s.qL == null && s.qD == null);
+  }
+
+  /* ---------- persistence ---------- */
+  async function persistSettings(){
+    if (!storageOK) return;
+    try {
+      await store.set(SETTINGS_KEY, JSON.stringify({
+        price: inputs.price.value, hours: inputs.hours.value
+      }));
+      const badge = $('saved');
+      badge.classList.add('on');
+      setTimeout(() => badge.classList.remove('on'), 1200);
+    } catch (e) { markStorageBroken(); }
+  }
+
+  async function persistLog(){
+    if (!storageOK) return;
+    try {
+      await store.set(LOG_KEY, JSON.stringify(measurements));
+    } catch (e) { markStorageBroken(); }
+  }
+
+  function markStorageBroken(){
+    storageOK = false;
+    $('storage-banner').classList.add('on');
+  }
+
+  async function loadAll(){
+    if (!storageOK){ $('storage-banner').classList.add('on'); recalc(); renderLog(); return; }
+    try {
+      const s = await store.get(SETTINGS_KEY);
+      if (s){
+        const v = JSON.parse(s);
+        if (v.price != null) inputs.price.value = v.price;
+        if (v.hours != null) inputs.hours.value = v.hours;
+      }
+    } catch (e) { /* first run: key absent */ }
+    try {
+      const m = await store.get(LOG_KEY);
+      if (m){
+        const arr = JSON.parse(m);
+        if (Array.isArray(arr)) measurements = arr;
+      }
+    } catch (e) { /* first run: key absent */ }
+    recalc();
+    renderLog();
+  }
+
+  /* ---------- measurement log ---------- */
+  function saveMeasurement(){
+    const s = currentState();
+    if (s.qL == null && s.qD == null) return;
+    const now = new Date();
+    const volL = s.qL == null ? null : s.qL * 60 * s.hours / 1000;
+    const volD = s.qD == null ? null : s.qD * 60 * s.hours / 1000;
+    measurements.unshift({
+      id: now.getTime() + '-' + Math.random().toString(36).slice(2,7),
+      ts: now.getTime(),
+      date: stampDate(now),
+      time: stampTime(now),
+      desc: inputs.desc.value.trim(),
+      leakq: s.lq, db: s.db,
+      qL: s.qL, qD: s.qD,
+      volL: volL, volD: volD,
+      costL: (s.price != null && volL != null) ? volL * s.price : null,
+      costD: (s.price != null && volD != null) ? volD * s.price : null,
+      price: s.price, hours: s.hours
+    });
+    persistLog();
+    inputs.leakq.value = '';
+    inputs.db.value = '';
+    inputs.desc.value = '';
+    recalc();
+    renderLog();
+  }
+
+  function renderLog(){
+    const list = $('log-list');
+    $('count').textContent = measurements.length + (measurements.length === 1 ? ' pomiar' : ' pomiarów');
+    list.textContent = '';
+    if (measurements.length === 0){
+      const e = document.createElement('div');
+      e.className = 'log-empty';
+      e.textContent = 'Brak zapisanych pomiarów.';
+      list.appendChild(e);
+      return;
+    }
+    measurements.forEach(m => {
+      const row = document.createElement('div');
+      row.className = 'log-row';
+
+      const main = document.createElement('div');
+      main.className = 'log-main';
+
+      const meta = document.createElement('div');
+      meta.className = 'log-meta';
+      meta.textContent = m.date + ' · ' + m.time;
+      main.appendChild(meta);
+
+      if (m.desc){
+        const d = document.createElement('div');
+        d.className = 'log-desc';
+        d.textContent = m.desc;
+        main.appendChild(d);
+      }
+
+      const vals = document.createElement('div');
+      vals.className = 'log-vals';
+      const parts = [];
+      if (m.leakq != null){
+        parts.push('LeakQ ' + fmt(m.leakq, m.leakq % 1 ? 1 : 0) + ' → ' +
+          (m.costL != null ? '<b>' + fmtCost(m.costL) + ' zł/rok</b>' : fmtFlow(m.qL) + ' l/min'));
+      }
+      if (m.db != null){
+        parts.push('dB ' + fmt(m.db, m.db % 1 ? 1 : 0) + ' → ' +
+          (m.costD != null ? '<b>' + fmtCost(m.costD) + ' zł/rok</b>' : fmtFlow(m.qD) + ' l/min'));
+      }
+      vals.innerHTML = parts.join('<br>');
+      main.appendChild(vals);
+      row.appendChild(main);
+
+      const del = document.createElement('button');
+      del.className = 'btn-del';
+      del.textContent = 'Usuń';
+      del.addEventListener('click', () => {
+        if (del.classList.contains('confirm')){
+          measurements = measurements.filter(x => x.id !== m.id);
+          persistLog();
+          renderLog();
+        } else {
+          del.classList.add('confirm');
+          del.textContent = 'Na pewno?';
+          setTimeout(() => { del.classList.remove('confirm'); del.textContent = 'Usuń'; }, 2500);
+        }
+      });
+      row.appendChild(del);
+      list.appendChild(row);
+    });
+  }
+
+  /* ---------- export ---------- */
+  function excelNum(v, dec){
+    if (v == null) return '';
+    return v.toFixed(dec).replace('.', ',');   // Polish Excel: comma decimal, no grouping
+  }
+  function csvCell(s, sep){
+    s = String(s == null ? '' : s);
+    if (s.includes(sep) || s.includes('"') || s.includes('\n')){
+      return '"' + s.replace(/"/g, '""') + '"';
+    }
+    return s;
+  }
+  function buildTable(sep){
+    const head = ['Data','Godzina','Opis','LeakQ','dB',
+      'Q wg LeakQ [l/min]','Q wg dB [l/min]',
+      'V wg LeakQ [m3/rok]','V wg dB [m3/rok]',
+      'Koszt wg LeakQ [zl/rok]','Koszt wg dB [zl/rok]',
+      'Cena [zl/m3]','Praca sieci [h/rok]'];
+    const rows = measurements.slice().reverse().map(m => [
+      m.date, m.time,
+      sep === '\t' ? String(m.desc || '').replace(/[\t\n]/g,' ') : csvCell(m.desc, sep),
+      excelNum(m.leakq, 1), excelNum(m.db, 1),
+      excelNum(m.qL, 3), excelNum(m.qD, 3),
+      excelNum(m.volL, 1), excelNum(m.volD, 1),
+      excelNum(m.costL, 2), excelNum(m.costD, 2),
+      excelNum(m.price, 4), excelNum(m.hours, 0)
+    ].join(sep));
+    return head.join(sep) + '\n' + rows.join('\n');
+  }
+
+  function flash(btn, txt){
+    const orig = btn.textContent;
+    btn.textContent = txt;
+    btn.classList.add('ok');
+    setTimeout(() => { btn.textContent = orig; btn.classList.remove('ok'); }, 1600);
+  }
+
+  async function copyToExcel(){
+    if (measurements.length === 0){ flash($('copy-btn'), 'Dziennik pusty'); return; }
+    const tsv = buildTable('\t');
+    let done = false;
+    if (navigator.clipboard && navigator.clipboard.writeText){
+      try { await navigator.clipboard.writeText(tsv); done = true; } catch (e) {}
+    }
+    if (!done){
+      const ta = document.createElement('textarea');
+      ta.value = tsv;
+      ta.style.position = 'fixed'; ta.style.opacity = '0';
+      document.body.appendChild(ta);
+      ta.focus(); ta.select();
+      try { done = document.execCommand('copy'); } catch (e) {}
+      document.body.removeChild(ta);
+    }
+    flash($('copy-btn'), done ? 'Skopiowano' : 'Nie udało się');
+  }
+
+  function downloadCsv(){
+    if (measurements.length === 0){ flash($('csv-btn'), 'Dziennik pusty'); return; }
+    const csv = '\ufeff' + buildTable(';');   // BOM so Excel reads UTF-8 (ł, ó, ż w opisach)
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    const d = new Date();
+    a.href = url;
+    a.download = 'wycieki_' + d.getFullYear() + two(d.getMonth()+1) + two(d.getDate()) + '.csv';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 4000);
+    flash($('csv-btn'), 'Pobrano');
+  }
+
+  /* ---------- wiring ---------- */
+  ['leakq','db'].forEach(k => inputs[k].addEventListener('input', recalc));
+  ['price','hours'].forEach(k => inputs[k].addEventListener('input', () => {
+    recalc();
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(persistSettings, 600);
+  }));
+  $('save-btn').addEventListener('click', saveMeasurement);
+  $('copy-btn').addEventListener('click', copyToExcel);
+  $('csv-btn').addEventListener('click', downloadCsv);
+
+  loadAll();
+})();
+</script>
+</body>
+</html>
