@@ -802,7 +802,10 @@
     let total = 0, withCost = 0;
     const blocks = [];
     for (const m of list){
-      const best = m.costL != null ? m.costL : m.costD;
+      /* do sumy: średnia obu szacunków, gdy są; inaczej ten dostępny */
+      let best = null;
+      if (m.costL != null && m.costD != null) best = (m.costL + m.costD) / 2;
+      else best = m.costL != null ? m.costL : m.costD;
       if (best != null){ total += best; withCost++; }
       let imgs = '';
       if (m.photos){
@@ -824,10 +827,12 @@
       }
       const locTxt = m.loc != null ? m.loc : m.desc;
       blocks.push('<section class="meas">' +
-        '<div class="meta">' + esc(m.date) + ' · ' + esc(m.time) + '</div>' +
-        (locTxt ? '<div class="loc">' + esc(locTxt) + '</div>' : '') +
-        (m.remarks ? '<div class="note">' + esc(m.remarks) + '</div>' : '') +
-        '<table><tr><th>Pomiar</th><th>Wyciek</th><th>Objętość</th><th>Koszt</th></tr>' + rows + '</table>' +
+        '<div class="data">' +
+          '<div class="meta">' + esc(m.date) + ' · ' + esc(m.time) + '</div>' +
+          (locTxt ? '<div class="loc">' + esc(locTxt) + '</div>' : '') +
+          (m.remarks ? '<div class="note">' + esc(m.remarks) + '</div>' : '') +
+          '<table><tr><th>Pomiar</th><th>Wyciek</th><th>Objętość</th><th>Koszt</th></tr>' + rows + '</table>' +
+        '</div>' +
         (imgs ? '<div class="photos">' + imgs + '</div>' : '') +
         '</section>');
     }
@@ -844,16 +849,19 @@
       '.summary b{font-size:18px}' +
       '.summary small{color:#666}' +
       /* break-inside:avoid = pomiar nigdy nie jest przecięty granicą strony */
-      '.meas{border:1px solid #ccc;border-radius:8px;padding:14px 16px;margin-bottom:14px;break-inside:avoid;page-break-inside:avoid}' +
+      '.meas{border:1px solid #ccc;border-radius:8px;padding:14px 16px;margin-bottom:14px;break-inside:avoid;page-break-inside:avoid;display:flex;gap:14px;align-items:flex-start}' +
+      '.data{flex:1 1 0;min-width:0}' +
       '.meta{font-size:12px;color:#666}' +
       '.loc{font-size:16px;font-weight:600;margin:2px 0}' +
       '.note{font-size:13px;color:#444;margin:2px 0 6px}' +
       'table{border-collapse:collapse;width:100%;font-size:13px;margin:8px 0}' +
       'th,td{border:1px solid #ccc;padding:5px 8px;text-align:left}' +
       'th{background:#f2f3f5;font-weight:600}' +
-      '.photos{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}' +
+      /* zdjęcia w kolumnie po prawej – oszczędza wysokość na ekranie i wydruku */
+      '.photos{display:flex;flex-direction:column;gap:8px;flex:0 0 200px}' +
       '.photos figure{margin:0;break-inside:avoid;page-break-inside:avoid}' +
-      '.photos img{width:100%;max-width:352px;max-height:110mm;object-fit:contain;border:1px solid #ccc;border-radius:6px;display:block}' +
+      '.photos img{width:200px;max-height:65mm;object-fit:contain;border:1px solid #ccc;border-radius:6px;display:block}' +
+      '@media(max-width:640px){.meas{flex-direction:column}.photos{flex-direction:row;flex-wrap:wrap;flex:initial}.photos img{width:47%}}' +
       '.print-btn{position:fixed;top:14px;right:14px;background:#1a73e8;color:#fff;border:none;border-radius:8px;padding:10px 16px;font-size:14px;cursor:pointer}' +
       'footer{color:#888;font-size:11px;margin-top:20px}' +
       '@media print{.print-btn{display:none}body{padding:0}}' +
@@ -865,7 +873,7 @@
         ' · Fluke ii500 · pomiarów: ' + list.length + '</div>' +
       (withCost ? '<div class="summary">Łączny szacowany koszt wycieków: <b>' +
         esc(fmtCost(total)) + ' zł/rok</b><br><small>Suma dla ' + withCost + ' z ' + list.length +
-        ' pomiarów (te z podaną ceną); gdy dostępne, wg LeakQ, w przeciwnym razie wg dB.</small></div>' : '') +
+        ' pomiarów (te z podaną ceną); przy obu odczytach liczona jest średnia szacunków LeakQ i dB.</small></div>' : '') +
       blocks.join('') +
       '<footer>Modele kalibracyjne: dB = 19,605·ln(Q) + 11,7 oraz LeakQ = 2,3432·ln(Q) − 4,1653, Q w l/min. ' +
       'Szacunek wg dB dotyczy pomiaru z odległości 1 m.</footer>' +
