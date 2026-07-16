@@ -184,6 +184,7 @@
   .log-desc{font-size:14px;font-weight:500;margin-bottom:5px;word-break:break-word}
   .log-note{font-size:12.5px;color:var(--muted);margin-top:-3px;margin-bottom:5px;word-break:break-word}
 
+  .photo-btns{display:flex;gap:8px}
   .photo-row{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px}
   .photo-row .ph{position:relative}
   .photo-row img{
@@ -302,8 +303,12 @@
     </div>
     <div class="field">
       <span class="label">Zdjęcia (opcjonalnie, max 6)</span>
+      <input id="camera-input" type="file" accept="image/*" capture="environment" hidden>
       <input id="photo-input" type="file" accept="image/*" multiple hidden>
-      <button type="button" class="btn-ghost" id="photo-btn">📷 Dodaj zdjęcie</button>
+      <div class="photo-btns" id="photo-btns">
+        <button type="button" class="btn-ghost" id="camera-btn">📷 Zrób zdjęcie</button>
+        <button type="button" class="btn-ghost" id="photo-btn">🖼 Z galerii</button>
+      </div>
       <div class="photo-row" id="photo-staging"></div>
     </div>
     <button class="btn-primary" id="save-btn" disabled>Zapisz pomiar</button>
@@ -907,7 +912,8 @@
   $('report-btn').addEventListener('click', downloadReport);
 
   $('photo-btn').addEventListener('click', () => $('photo-input').click());
-  $('photo-input').addEventListener('change', async e => {
+  $('camera-btn').addEventListener('click', () => $('camera-input').click());
+  async function onPhotosPicked(e){
     const files = Array.from(e.target.files || []);
     e.target.value = '';
     for (const f of files){
@@ -916,7 +922,9 @@
       if (b) stagedPhotos.push(b);
     }
     renderStaging();
-  });
+  }
+  $('photo-input').addEventListener('change', onPhotosPicked);
+  $('camera-input').addEventListener('change', onPhotosPicked);
 
   $('viewer').addEventListener('click', () => {
     $('viewer').classList.remove('on');
@@ -925,7 +933,7 @@
   });
 
   photoDbReady.then(db => {
-    if (!db){ $('photo-btn').style.display = 'none'; }
+    if (!db){ $('photo-btns').style.display = 'none'; }
     else if (measurements.length){ renderLog(); }
   });
 
